@@ -1,12 +1,18 @@
 #include <intrinsics.h>
-#include <iostm8s003k3.h>
+#include <iostm8s003f3.h>
 
-#define RED PB_ODR_ODR0
-#define BLUE PB_ODR_ODR1
-#define GREEN PB_ODR_ODR2
-#define RESET PB_ODR_ODR5
-#define HZ PB_ODR_ODR6
-#define LANG PB_ODR_ODR7
+#define RED PA_ODR_ODR3
+#define BLUE PD_ODR_ODR3
+#define GREEN PD_ODR_ODR4
+
+#define RESET PC_ODR_ODR5
+#define HZ PC_ODR_ODR4
+#define LANG PC_ODR_ODR3
+
+#define EXP PC_ODR_ODR7
+
+#define BTN PC_IDR_IDR6
+
 #define PAL 0
 #define NTSC 1
 #define JAP 0
@@ -36,40 +42,43 @@ void SetSwitches(unsigned int stat)
   {
     case 1:
       RED = 0;
-      GREEN = 1;
-      BLUE = 1;
-      HZ = 0;
-      LANG = 1;
-      break;
-    case 2:
-      RED = 1;
       GREEN = 0;
       BLUE = 1;
-      HZ = 1;
-      LANG = 1;
+      HZ = NTSC;
+      LANG = JAP;
+      EXP = 1;
+      break;
+    case 2:
+      RED = 0;
+      GREEN = 1;
+      BLUE = 0;
+      HZ = NTSC;
+      LANG = ENG;
+      EXP = 1;
       break;
     case 0:
       RED = 1;
       GREEN = 0;
       BLUE = 0;
-      HZ = 1;
-      LANG = 0;
+      HZ = PAL;
+      LANG = ENG;
+      EXP = 0;
       break;
   }
 }
 
 void ResetMD(){
-  RED = 0;
-  GREEN = 0;
-  BLUE = 0;
+  RED = 1;
+  GREEN = 1;
+  BLUE = 1;
   
   RESET = 1;
   Delayms(500);
   RESET = 0;
   
-  RED = 1;
-  GREEN = 1;
-  BLUE = 1;
+  RED = 0;
+  GREEN = 0;
+  BLUE = 0;
   Delayms(500);
   SetSwitches(status);
 }
@@ -77,40 +86,41 @@ void ResetMD(){
 unsigned int btnOn = 0;
 
 //
-//  Timer 2 Overflow handler.
+//  Timer 1 Overflow handler.
 //
-#pragma vector = TIM2_OVR_UIF_vector
-__interrupt void TIM2_UPD_OVF_IRQHandler(void)
+#pragma vector = TIM1_OVR_UIF_vector
+__interrupt void TIM1_UPD_OVF_IRQHandler(void)
 { 
-  if (PB_IDR_IDR3 == 1 && btnOn > 1){
+  if (BTN == 0 && btnOn > 1){
     SetSwitches(status);
     btnOn = 0;
   } 
   
-  if (PB_IDR_IDR3 == 1 && btnOn == 1){
+  
+  if (BTN == 1){
+    btnOn++;
+  }
+  
+  if (BTN == 0 && btnOn == 1){
     ResetMD();
     btnOn = 0;
   } 
-  
-  if (PB_IDR_IDR3 == 0){
-    btnOn++;
-  }
 
-  if (PB_IDR_IDR3 == 0 && btnOn > 2){
+  if (BTN == 1 && btnOn > 2){
       switch (status)
       {
         case 0:
           RED = 0;
-          GREEN = 1;
+          GREEN = 0;
           BLUE = 1;
           
           status = 1;
           break;
           
          case 1:
-          RED = 1;
-          GREEN = 0;
-          BLUE = 1;
+          RED = 0;
+          GREEN = 1;
+          BLUE = 0;
           
           status = 2;
           break;
@@ -125,7 +135,7 @@ __interrupt void TIM2_UPD_OVF_IRQHandler(void)
       }
     }
     
-  TIM2_SR1_UIF = 0;               //  Reset the interrupt otherwise it will fire again straight away.
+  TIM1_SR1_UIF = 0;               //  Reset the interrupt otherwise it will fire again straight away.
 }
 
 //
@@ -187,14 +197,39 @@ void InitialiseTimer2()
 }
 
 //
+//  Setup Timer 1 to generate a 20 Hz interrupt based upon a 16 MHz timer.
+//
+void SetupTimer1()
+{
+    
+  TIM1_PSCRH = 0x00;       // Prescalar = 256
+  TIM1_PSCRL = 0xff;
+  TIM1_CR1_DIR = 0;     // Up counter
+  TIM1_ARRH = 0x7a;     // High byte of 50,000.
+  TIM1_ARRL = 0x12;     // Low byte of 50,000.
+  TIM1_IER_UIE = 1;     // Enable the update interrupts.
+  TIM1_CR1_CEN = 1;     // Finally enable the timer.
+}
+
+//
 //  Setup Timer 2 to generate a 20 Hz interrupt based upon a 16 MHz timer.
 //
 void SetupTimer2()
 {
+    /*
     TIM2_PSCR = 0x08;       //  Prescaler = 256.
     TIM2_ARRH = 0x7a;       //  High byte of 50,000.
     TIM2_ARRL = 0x12;       //  Low byte of 50,000.
     TIM2_IER_UIE = 1;       //  Enable the update interrupts.
+    TIM2_CR1_CEN = 1;       //  Finally enable the timer.*/
+    TIM2_PSCR = 0x03;       //  Prescaler = 1.
+    TIM2_ARRH = 0xc3;       //  High byte of 50,000.
+    TIM2_ARRL = 0x50;       //  Low byte of 50,000.
+    TIM2_CCR1H = 0x30;      //  High byte of 12,500
+    TIM2_CCR1L = 0xd4;      //  Low byte of 12,500
+    TIM2_CCER1_CC1P = 0;    //  Active high.
+    TIM2_CCER1_CC1E = 1;    //  Enable compare mode for channel 1
+    TIM2_CCMR1_OC1M = 6;    //  PWM Mode 1 - active if counter < CCR1, inactive otherwise.
     TIM2_CR1_CEN = 1;       //  Finally enable the timer.
 }
 
@@ -210,28 +245,48 @@ void main()
     InitialiseSystemClock();
     
     /*
-    *     Port B setup
+    *     Ports setup
     */
-    PB_ODR = 0;         // all pins turned off 
+    PA_ODR = 0;         // all pins turned off 
+    PD_ODR = 0;         // all pins turned off 
+    PC_ODR = 0;         // all pins turned off 
     
-    PB_DDR = 0xff;          //  All pins are outputs.
-    PB_CR1 = 0xff;          //  Push-Pull outputs.
-    PB_CR2 = 0xff;          //  Output speeds up to 10 MHz.
+    PA_DDR = 0xff;          //  All pins are outputs.
+    PA_CR1 = 0xff;          //  Push-Pull outputs.
+    PA_CR2 = 0xff;          //  Output speeds up to 10 MHz.
     
-    PB_DDR_DDR3 = 0;        //  PB0 is input.
-    PB_CR1_C13 = 0;         //  PB0 is floating input.
+    PD_DDR = 0xff;          //  All pins are outputs.
+    PD_CR1 = 0xff;          //  Push-Pull outputs.
+    PD_CR2 = 0xff;          //  Output speeds up to 10 MHz.
+    
+    PC_DDR_DDR3 = 1;
+    PC_DDR_DDR4 = 1;
+    PC_DDR_DDR5 = 1;
+    PC_DDR_DDR7 = 1;
+    PC_CR1_C13 = 1;
+    PC_CR1_C14 = 1;
+    PC_CR1_C15 = 1;
+    PC_CR1_C17 = 1;
+    PC_CR2_C23 = 1;
+    PC_CR2_C24 = 1;
+    PC_CR2_C25 = 1;
+    PC_CR2_C27 = 1;
+    
+    PC_DDR_DDR6 = 0;        //  PB0 is input.
+    PC_CR1_C16 = 1;         //  PB0 has pull-up.
     //
     //  Set up the interrupt.
     //
     EXTI_CR1_PBIS = 2;      //  Interrupt on falling edge.
     EXTI_CR2_TLIS = 0;      //  Falling edge only.
     
-    InitialiseTimer2();
-    SetupTimer2();
+    //InitialiseTimer2();
+    SetupTimer1();
+    //SetupTimer2();
     
     __enable_interrupt();
 
-    SetSwitches(0);
+    SetSwitches(2);
     
     while (1)
     {
